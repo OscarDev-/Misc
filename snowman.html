@@ -862,7 +862,7 @@ function resetGame(){
   STATE.enemies.forEach(e=>scene.remove(e.mesh)); STATE.enemies=[];
   STATE.bullets.forEach(b=>scene.remove(b.mesh)); STATE.bullets=[];
   STATE.particles.forEach(p=>scene.remove(p.mesh)); STATE.particles=[];
-  STATE.score=0; STATE.wave=1; STATE.health=100; STATE.ammo=20; STATE.reloading=false;
+  STATE.score=0; STATE.wave=0; STATE.health=100; STATE.ammo=20; STATE.reloading=false;
   STATE.enemiesRemaining=0; STATE.boss=null; STATE.bossSpawned=false; STATE.waveDelay=false;
   camera.position.set(0,1.7,0); STATE.yaw=0; STATE.pitch=0;
   STATE.squadrons.forEach((s,i)=>{
