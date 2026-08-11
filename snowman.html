@@ -923,9 +923,9 @@ function updateEnemies(dt) {
       e.lastAttack = now;
       if (e.type === 'santa' || e.type === 'elf') {
         playEnemyShoot();
-        STATE.bullets.push(createSnowball(shootPos, dir, true));
         const shootPos = e.mesh.position.clone().add(
-          new THREE.Vector3(0, e.type === 'santa' ? 2 : 1, 0));
+            new THREE.Vector3(0, e.type === 'santa' ? 2 : 1, 0));
+        STATE.bullets.push(createSnowball(shootPos, dir, true));
         STATE.bullets.push(createSnowball(shootPos, dir, true));
       } else {
         damagePlayer(e.damage);
