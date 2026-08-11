@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Frostbite Squadron: Assault on the North Pole</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+canvas { display: block; }
+#ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+#crosshair { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30px; height: 30px; z-index: 20; }
+#crosshair::before, #crosshair::after { content: ''; position: absolute; background: #0ff; box-shadow: 0 0 8px #0ff; }
+#crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+#crosshair::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+#hud-top { position: fixed; top: 15px; left: 15px; right: 15px; display: flex; justify-content: space-between; color: #0ff; text-shadow: 0 0 10px #0ff; font-size: 16px; }
+#health-bar-container { width: 250px; height: 20px; background: rgba(0,0,0,0.7); border: 2px solid #0ff; border-radius: 10px; overflow: hidden; margin-bottom: 5px; }
+#health-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #0f0, #0ff); transition: width 0.3s; }
+#health-bar.low { background: linear-gradient(90deg, #f00, #ff0); }
+#ammo-display { position: fixed; bottom: 20px; right: 20px; color: #0ff; font-size: 24px; text-shadow: 0 0 10px #0ff; }
+#wave-display { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 48px; text-shadow: 0 0 20px #0ff; opacity: 0; transition: opacity 0.5s; pointer-events: none; }
+#wave-display.show { opacity: 1; }
+#start-screen, #gameover-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(180deg, #001 0%, #003 50%, #012 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+#gameover-screen { display: none; }
+.title { font-size: 42px; color: #0ff; text-shadow: 0 0 20px #0ff; margin-bottom: 10px; text-align: center; }
+.subtitle { font-size: 18px; color: #8cf; margin-bottom: 30px; text-align: center; max-width: 600px; line-height: 1.6; }
+.btn { padding: 15px 40px; font-size: 20px; font-family: 'Courier New', monospace; background: transparent; color: #0ff; border: 2px solid #0ff; cursor: pointer; transition: all 0.3s; margin: 10px; text-shadow: 0 0 10px #0ff; }
+.btn:hover { background: #0ff; color: #001; }
+.controls-info { color: #68a; font-size: 13px; margin-top: 25px; text-align: center; line-height: 1.8; }
+#damage-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(ellipse at center, transparent 50%, rgba(255,0,0,0.5) 100%); opacity: 0; transition: opacity 0.1s; pointer-events: none; z-index: 15; }
+#score-popup { position: fixed; color: #ff0; font-size: 28px; text-shadow: 0 0 15px #ff0; opacity: 0; pointer-events: none; z-index: 25; }
+#boss-health-container { position: fixed; top: 15px; left: 50%; transform: translateX(-50%); width: 400px; display: none; }
+#boss-health-label { color: #f44; font-size: 14px; text-shadow: 0 0 10px #f00; text-align: center; margin-bottom: 3px; }
+#boss-health-bar-container { width: 100%; height: 16px; background: rgba(0,0,0,0.8); border: 2px solid #f44; border-radius: 8px; overflow: hidden; }
+#boss-health-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #f00, #f80); transition: width 0.2s; }
+.snowflake { position: fixed; color: #fff; font-size: 14px; pointer-events: none; animation: fall linear infinite; z-index: 5; opacity: 0.7; }
+@keyframes fall { 0% { transform: translateY(-10vh) rotate(0deg); } 100% { transform: translateY(110vh) rotate(360deg); } }
+#squadron-status { position: fixed; bottom: 20px; left: 20px; color: #0ff; font-size: 14px; }
+.squadron-member { display: inline-block; margin-right: 10px; }
+.squadron-member.alive { color: #0f0; }
+.squadron-member.dead { color: #f00; text-decoration: line-through; }
+</style>
+</head>
+<body>
+<div id="start-screen">
+  <div class="title">❄️ FROSTBITE SQUADRON ❄️</div>
+  <div class="subtitle">Assault on the North Pole. You are Frost-7. Santa has gone rogue!<br>His army of evil elves and corrupted reindeer threatens all snow-kind.<br>Lead your squadron and take down Santa himself!</div>
+  <button class="btn" id="start-btn">🎯 ENGAGE MISSION</button>
+  <div class="controls-info">WASD - Move | MOUSE - Aim | LEFT CLICK - Fire | SHIFT - Sprint | SPACE - Jump | R - Reload</div>
+</div>
+<div id="gameover-screen">
+  <div class="title" id="gameover-title">MISSION FAILED</div>
+  <div class="subtitle" id="gameover-subtitle"></div>
+  <div class="subtitle" id="final-score"></div>
+  <button class="btn" id="restart-btn">🔄 TRY AGAIN</button>
+</div>
+<div id="ui">
+  <div id="crosshair"></div><div id="damage-overlay"></div><div id="score-popup"></div><div id="wave-display"></div>
+  <div id="hud-top">
+    <div><div id="health-bar-container"><div id="health-bar"></div></div><div id="health-text">HP: 100/100</div></div>
+    <div style="text-align:right"><div id="score-text">SCORE: 0</div><div id="wave-text">WAVE: 1</div><div id="enemies-text">ENEMIES: 0</div></div>
+  </div>
+  <div id="boss-health-container"><div id="boss-health-label">🎅 SANTA CLAUS</div><div id="boss-health-bar-container"><div id="boss-health-bar"></div></div></div>
+  <div id="ammo-display">❄️ 20 / ∞</div>
+  <div id="squadron-status"><div style="margin-bottom:5px;color:#8cf">SQUADRON:</div>
+    <span class="squadron-member alive" id="sq-1">❄️ Frost-1</span><span class="squadron-member alive" id="sq-2">❄️ Frost-2</span>
+    <span class="squadron-member alive" id="sq-3">❄️ Frost-3</span><span class="squadron-member alive" id="sq-4">❄️ Frost-4</span>
+    <span class="squadron-member alive" id="sq-5">❄️ Frost-5</span><span class="squadron-member alive" id="sq-6">❄️ Frost-6</span>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const STATE = { running:false, score:0, wave:1, health:100, maxHealth:100, ammo:20, maxAmmo:20, reloading:false,
+  enemies:[], bullets:[], particles:[], squadrons:[], boss:null, bossSpawned:false, enemiesRemaining:0,
+  waveDelay:false, sprinting:false, canJump:true, velocity:new THREE.Vector3(), yaw:0, pitch:0, lastShot:0, fireRate:150 };
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000820);
+scene.fog = new THREE.FogExp2(0x000820, 0.015);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 500);
+camera.position.set(0, 1.7, 0);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x406080, 0.6));
+const moonLight = new THREE.DirectionalLight(0x88aaff, 0.8);
+moonLight.position.set(50,80,30); moonLight.castShadow=true;
+moonLight.shadow.mapSize.set(2048,2048);
+scene.add(moonLight);
+const redLight = new THREE.PointLight(0xff0000, 2, 60);
+redLight.position.set(0,10,-40); scene.add(redLight);
+
+// ==================== SOUND SYSTEM ====================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+// Generate noise buffer for explosions/wind
+function noiseBuffer(duration = 0.5) {
+  if (!audioCtx) return null;
+  const bufferSize = audioCtx.sampleRate * duration;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.5;
+  }
+  return buffer;
+}
+
+// Snowball shoot (whoosh)
+function playShoot() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(800, t);
+  osc.frequency.exponentialRampToValueAtTime(200, t + 0.12);
+  gain.gain.setValueAtTime(0.15, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + 0.15);
+}
+
+// Enemy hit (crunch)
+function playHit() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const src = audioCtx.createBufferSource();
+  src.buffer = noiseBuffer(0.15);
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 1500;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.3, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  src.connect(filter).connect(gain).connect(audioCtx.destination);
+  src.start(t);
+}
+
+// Enemy explosion (bigger crunch)
+function playExplosion() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const src = audioCtx.createBufferSource();
+  src.buffer = noiseBuffer(0.4);
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.setValueAtTime(2000, t);
+  filter.frequency.exponentialRampToValueAtTime(200, t + 0.4);
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.5, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  src.connect(filter).connect(gain).connect(audioCtx.destination);
+  src.start(t);
+}
+
+// Player damage
+function playDamage() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(150, t);
+  osc.frequency.exponentialRampToValueAtTime(50, t + 0.2);
+  gain.gain.setValueAtTime(0.2, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + 0.2);
+}
+
+// Enemy projectile
+function playEnemyShoot() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(300, t);
+  osc.frequency.exponentialRampToValueAtTime(100, t + 0.1);
+  gain.gain.setValueAtTime(0.08, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + 0.1);
+}
+
+// Footstep
+let lastFootstep = 0;
+function playFootstep() {
+  if (!audioCtx) return;
+  const now = Date.now();
+  if (now - lastFootstep < 300) return;
+  lastFootstep = now;
+  const t = audioCtx.currentTime;
+  const src = audioCtx.createBufferSource();
+  src.buffer = noiseBuffer(0.08);
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 800;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.06, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  src.connect(filter).connect(gain).connect(audioCtx.destination);
+  src.start(t);
+}
+
+// Wave announcement
+function playWaveStart() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [523, 659, 784].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, t + i * 0.15);
+    gain.gain.linearRampToValueAtTime(0.15, t + i * 0.15 + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.15 + 0.4);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t + i * 0.15); osc.stop(t + i * 0.15 + 0.4);
+  });
+}
+
+// Boss spawn
+function playBossSpawn() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [110, 130, 146, 164].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, t + i * 0.2);
+    gain.gain.linearRampToValueAtTime(0.2, t + i * 0.2 + 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.2 + 0.8);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t + i * 0.2); osc.stop(t + i * 0.2 + 0.8);
+  });
+}
+
+// Victory
+function playVictory() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [523, 659, 784, 1047, 784, 1047].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, t + i * 0.15);
+    gain.gain.linearRampToValueAtTime(0.2, t + i * 0.15 + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.15 + 0.5);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t + i * 0.15); osc.stop(t + i * 0.15 + 0.5);
+  });
+}
+
+// Game over
+function playGameOver() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [400, 350, 300, 200].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, t + i * 0.3);
+    gain.gain.linearRampToValueAtTime(0.15, t + i * 0.3 + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.3 + 0.6);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t + i * 0.3); osc.stop(t + i * 0.3 + 0.6);
+  });
+}
+
+// Ambient wind
+let windNode = null;
+function startWind() {
+  if (!audioCtx || windNode) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = noiseBuffer(4);
+  src.loop = true;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 400;
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.03;
+  src.connect(filter).connect(gain).connect(audioCtx.destination);
+  src.start();
+  windNode = { src, gain };
+  // Modulate wind
+  setInterval(() => {
+    if (windNode) {
+      windNode.gain.gain.value = 0.02 + Math.random() * 0.03;
+      filter.frequency.value = 300 + Math.random() * 200;
+    }
+  }, 2000);
+}
+
+function stopWind() {
+  if (windNode) {
+    windNode.src.stop();
+    windNode = null;
+  }
+}
+
+
+// Get ground height at position (x, z)
+function getGroundHeight(x, z) {
+  return Math.sin(x * 0.1) * Math.cos(z * 0.1) * 1.5;
+}
+
+// Ground
+const groundGeo = new THREE.PlaneGeometry(200,200,50,50);
+const v = groundGeo.attributes.position.array;
+for(let i=0;i<v.length;i+=3){ v[i+2] += Math.sin(v[i]*0.1)*Math.cos(v[i+1]*0.1)*1.5; }
+groundGeo.computeVertexNormals();
+const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.9}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+
+// Icebergs
+for(let i=0;i<8;i++){
+  const m=new THREE.Mesh(new THREE.ConeGeometry(3+Math.random()*5,4+Math.random()*6,6),
+    new THREE.MeshStandardMaterial({color:0xaaddff,roughness:0.4}));
+  m.position.set((Math.random()-0.5)*120,3,(Math.random()-0.5)*120); m.castShadow=true; scene.add(m);
+}
+
+// Workshop
+(function(){
+  const g=new THREE.Group();
+  const wallMat=new THREE.MeshStandardMaterial({color:0x8B2500,roughness:0.8});
+  const trimMat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.6});
+  const roofMat=new THREE.MeshStandardMaterial({color:0xeeeeee,roughness:0.4});
+  const winMat=new THREE.MeshStandardMaterial({color:0xffee44,emissive:0xffaa00,emissiveIntensity:0.6});
+  const doorMat=new THREE.MeshStandardMaterial({color:0x4a2800});
+
+  // Main building
+  const main=new THREE.Mesh(new THREE.BoxGeometry(18,10,14),wallMat);
+  main.position.y=5; main.castShadow=true; main.receiveShadow=true; g.add(main);
+
+  // White trim
+  const topTrim=new THREE.Mesh(new THREE.BoxGeometry(19,0.4,15),trimMat);
+  topTrim.position.y=10; g.add(topTrim);
+  const botTrim=new THREE.Mesh(new THREE.BoxGeometry(19,0.4,15),trimMat);
+  botTrim.position.y=0.2; g.add(botTrim);
+
+  // Proper pitched roof (single peaked roof)
+  const roofShape=new THREE.Shape();
+  roofShape.moveTo(-11,0);
+  roofShape.lineTo(0,6);
+  roofShape.lineTo(11,0);
+  roofShape.lineTo(-11,0);
+  const roofExtrudeSettings={steps:1, depth:16, bevelEnabled:false};
+  const roofGeo=new THREE.ExtrudeGeometry(roofShape,roofExtrudeSettings);
+  const roof=new THREE.Mesh(roofGeo,roofMat);
+  roof.position.set(0,10,-8); roof.castShadow=true; g.add(roof);
+
+  // Windows
+  for(let row=0;row<2;row++){
+    for(let col=-1;col<=1;col+=2){
+      const win=new THREE.Mesh(new THREE.PlaneGeometry(2.5,2.5),winMat);
+      win.position.set(col*5, 4+row*3.5, 7.2); g.add(win);
+      const frame=new THREE.Mesh(new THREE.BoxGeometry(2.8,2.8,0.2),trimMat);
+      frame.position.set(col*5, 4+row*3.5, 7.1); g.add(frame);
+    }
+  }
+
+  // Front door
+  const door=new THREE.Mesh(new THREE.BoxGeometry(3,5,0.3),doorMat);
+  door.position.set(0,2.5,7.2); g.add(door);
+  const knob=new THREE.Mesh(new THREE.SphereGeometry(0.12,8,8),new THREE.MeshStandardMaterial({color:0xffd700,metalness:0.9}));
+  knob.position.set(1,2.8,7.4); g.add(knob);
+
+  // Chimney
+  const chim=new THREE.Mesh(new THREE.BoxGeometry(2.5,6,2),new THREE.MeshStandardMaterial({color:0x666666}));
+  chim.position.set(6,12,-3); chim.castShadow=true; g.add(chim);
+  const chimTop=new THREE.Mesh(new THREE.BoxGeometry(3,0.4,2.6),new THREE.MeshStandardMaterial({color:0x444444}));
+  chimTop.position.set(6,15,-3); g.add(chimTop);
+
+  g.position.set(0,0,-60); scene.add(g);
+})();
+
+
+// Trees
+for (let i = 0; i < 30; i++) {
+  const g = new THREE.Group(), x = (Math.random() - 0.5) * 120, z = (Math.random() - 0.5) * 120 - 10;
+  if (Math.abs(x) < 15 && Math.abs(z + 60) < 20) continue;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x3a2818 }));
+  trunk.position.y = 2; trunk.castShadow = true; g.add(trunk);
+  for (let j = 0; j < 3; j++) {
+    const c = new THREE.Mesh(new THREE.ConeGeometry(2.2 - j * 0.5, 2.5, 6),
+      new THREE.MeshStandardMaterial({ color: 0x88ddff }));
+    c.position.y = 2.5 + j * 2.0; c.castShadow = true; g.add(c);
+  }
+  g.position.set(x, 0, z); scene.add(g);
+}
+
+// Weapon - Snow Cannon
+const weaponGroup=new THREE.Group(); camera.add(weaponGroup);
+const gunMat=new THREE.MeshStandardMaterial({color:0x5599bb,metalness:0.6,roughness:0.3});
+const darkMat=new THREE.MeshStandardMaterial({color:0x334455,metalness:0.5,roughness:0.4});
+
+// Main barrel
+const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.055,0.9,12),gunMat);
+barrel.rotation.x=Math.PI/2; barrel.position.set(0.28,-0.18,-0.55); weaponGroup.add(barrel);
+
+// Barrel tip (wider muzzle)
+const muzzle=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.05,0.15,12),darkMat);
+muzzle.rotation.x=Math.PI/2; muzzle.position.set(0.28,-0.18,-1.0); weaponGroup.add(muzzle);
+
+// Muzzle ring
+const ring=new THREE.Mesh(new THREE.TorusGeometry(0.07,0.01,6,12),new THREE.MeshStandardMaterial({color:0x88ccff,emissive:0x0088ff,emissiveIntensity:0.3}));
+ring.position.set(0.28,-0.18,-1.07); weaponGroup.add(ring);
+
+// Body housing
+const housing=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.14,0.35),darkMat);
+housing.position.set(0.28,-0.12,-0.15); weaponGroup.add(housing);
+
+// Grip
+const grip=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.18,0.08),new THREE.MeshStandardMaterial({color:0x223344}));
+grip.position.set(0.28,-0.3,-0.05); grip.rotation.x=0.2; weaponGroup.add(grip);
+
+// Side detail
+const side=new THREE.Mesh(new THREE.BoxGeometry(0.02,0.08,0.25),gunMat);
+side.position.set(0.35,-0.1,-0.15); weaponGroup.add(side);
+
+scene.add(camera);
+
+// Helper: make capsule from primitives (no CapsuleGeometry needed)
+function makeCapsule(radius, length, segments, material){
+  const g=new THREE.Group();
+  const cyl=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,length,segments),material);
+  g.add(cyl);
+  const sp=new THREE.Mesh(new THREE.SphereGeometry(radius,segments,segments),material);
+  g.add(sp); sp.position.y=length/2+radius;
+  const sb=sp.clone(); g.add(sb); sb.position.y=-length/2-radius;
+  return g;
+}
+
+// Snowman
+function createSnowman(x, z, name) {
+  const g = new THREE.Group();
+  const sm = new THREE.MeshStandardMaterial({ color: 0xf0f8ff, roughness: 0.85 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
+  const twigMat = new THREE.MeshStandardMaterial({ color: 0x5c3a1e });
+  const scarfMat = new THREE.MeshStandardMaterial({ color: 0xcc2222 });
+  const carrotMat = new THREE.MeshStandardMaterial({ color: 0xff8800 });
+
+  const bot = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), sm);
+  bot.position.y = 0.55; bot.castShadow = true; g.add(bot);
+
+  const mid = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), sm);
+  mid.position.y = 1.2; mid.castShadow = true; g.add(mid);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), sm);
+  head.position.y = 1.75; head.castShadow = true; g.add(head);
+
+  const eyeGeo = new THREE.SphereGeometry(0.035, 8, 8);
+  const le = new THREE.Mesh(eyeGeo, darkMat); le.position.set(-0.1, 1.8, 0.27); g.add(le);
+  const re = new THREE.Mesh(eyeGeo, darkMat); re.position.set(0.1, 1.8, 0.27); g.add(re);
+
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 8), carrotMat);
+  nose.rotation.x = Math.PI / 2; nose.position.set(0, 1.75, 0.3); g.add(nose);
+
+  for (let i = -2; i <= 2; i++) {
+    const c = new THREE.Mesh(new THREE.SphereGeometry(0.015, 4, 4), darkMat);
+    c.position.set(i * 0.04, 1.68, 0.27); g.add(c);
+  }
+
+  const scarfBody = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.045, 8, 16, Math.PI * 1.5), scarfMat);
+  scarfBody.position.set(0, 1.35, 0); scarfBody.rotation.y = Math.PI / 2; g.add(scarfBody);
+  const scarfEnd = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.25, 0.04), scarfMat);
+  scarfEnd.position.set(0.25, 1.15, 0.1); scarfEnd.rotation.z = -0.3; g.add(scarfEnd);
+
+  const armGeo = new THREE.CylinderGeometry(0.018, 0.025, 0.7, 6);
+  const la = new THREE.Mesh(armGeo, twigMat); la.position.set(-0.6, 1.25, 0); la.rotation.z = -0.6; g.add(la);
+  const ra = new THREE.Mesh(armGeo, twigMat); ra.position.set(0.6, 1.25, 0); ra.rotation.z = 0.6; g.add(ra);
+
+  const mc = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.45, 8),
+    new THREE.MeshStandardMaterial({ color: 0x66aacc, metalness: 0.5 }));
+  mc.rotation.x = Math.PI / 2; mc.position.set(0.7, 1.25, -0.15); g.add(mc);
+
+  const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.025, 16), darkMat);
+  hatBrim.position.y = 2.0; g.add(hatBrim);
+  const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.35, 12), darkMat);
+  hatTop.position.y = 2.2; g.add(hatTop);
+  const hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.185, 0.03, 16), scarfMat);
+  hatBand.position.y = 2.05; g.add(hatBand);
+
+  g.position.set(x, 0, z); scene.add(g);
+  return { mesh: g, name, health: 100, alive: true, speed: 3, lastShot: 0, target: null,
+    patrolAngle: Math.random() * Math.PI * 2, patrolRadius: 8 + Math.random() * 5,
+    state: 'patrol', shootCooldown: 800 + Math.random() * 400 };
+}
+
+// Create squadron - MUST exist right after createSnowman
+const sqNames = ['Frost-1', 'Frost-2', 'Frost-3', 'Frost-4', 'Frost-5', 'Frost-6'];
+for (let i = 0; i < 6; i++) {
+  const a = (i / 6) * Math.PI * 2;
+  STATE.squadrons.push(createSnowman(Math.cos(a) * 10, Math.sin(a) * 10, sqNames[i]));
+}
+
+
+// Elf
+function createElf(x, z) {
+  const g = new THREE.Group();
+  const suitMat = new THREE.MeshStandardMaterial({ color: 0x007700, roughness: 0.6 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xffccaa });
+  const hatMat = new THREE.MeshStandardMaterial({ color: 0x005500 });
+  const bootMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.5 });
+  const bowMat = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+
+  const body = makeCapsule(0.22, 0.5, 8, suitMat);
+  body.position.y = 0.75; body.castShadow = true; g.add(body);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 10), skinMat);
+  head.position.y = 1.25; head.castShadow = true; g.add(head);
+
+  [-1, 1].forEach(side => {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 4), skinMat);
+    ear.position.set(side * 0.18, 1.3, 0); ear.rotation.z = side * -0.5; g.add(ear);
+  });
+
+  const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.03, 10), hatMat);
+  hatBrim.position.y = 1.42; g.add(hatBrim);
+  const hatCone = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.45, 8), hatMat);
+  hatCone.position.set(0, 1.65, -0.05); hatCone.rotation.x = 0.15; g.add(hatCone);
+
+  const le = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+  le.position.set(-0.07, 1.28, 0.15); g.add(le);
+  const re = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+  re.position.set(0.07, 1.28, 0.15); g.add(re);
+
+  const grin = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.015, 4, 8, Math.PI),
+    new THREE.MeshStandardMaterial({ color: 0x111111 }));
+  grin.position.set(0, 1.18, 0.16); grin.rotation.z = Math.PI; g.add(grin);
+
+  const legGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.4, 6);
+  const ll = new THREE.Mesh(legGeo, bootMat); ll.position.set(-0.1, 0.2, 0); g.add(ll);
+  const rl = new THREE.Mesh(legGeo, bootMat); rl.position.set(0.1, 0.2, 0); g.add(rl);
+
+  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.015, 4, 10, Math.PI), bowMat);
+  bow.position.set(0.25, 0.85, 0.15); bow.rotation.z = Math.PI / 2; g.add(bow);
+
+  const arrow = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.35, 4),
+    new THREE.MeshStandardMaterial({ color: 0x666666 }));
+  arrow.rotation.z = Math.PI / 2; arrow.position.set(0.35, 0.85, 0.15); g.add(arrow);
+  const arrowTip = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.06, 4),
+    new THREE.MeshStandardMaterial({ color: 0xff4444 }));
+  arrowTip.rotation.z = -Math.PI / 2; arrowTip.position.set(0.52, 0.85, 0.15); g.add(arrowTip);
+
+  g.position.set(x, 0, z); scene.add(g);
+  return { mesh: g, type: 'elf', health: 30, speed: 4 + Math.random() * 2,
+    damage: 8, score: 100, attackRange: 12, attackCooldown: 1200,
+    lastAttack: 0, alive: true };
+}
+
+
+// Reindeer
+function createReindeer(x, z) {
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.7 });
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x5c2e0e });
+  const antlerMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.5 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.5 });
+
+  const bodyCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.4, 10), bodyMat);
+  bodyCyl.rotation.z = Math.PI / 2; bodyCyl.position.set(0, 1.0, 0); bodyCyl.castShadow = true; g.add(bodyCyl);
+
+  const frontEnd = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 10), bodyMat);
+  frontEnd.position.set(0.7, 1.0, 0); g.add(frontEnd);
+  const backEnd = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 10), bodyMat);
+  backEnd.position.set(-0.7, 1.0, 0); g.add(backEnd);
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.7, 8), bodyMat);
+  neck.position.set(0.9, 1.4, 0); neck.rotation.z = -0.7; neck.castShadow = true; g.add(neck);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 10), bodyMat);
+  head.position.set(1.2, 1.75, 0); head.castShadow = true; g.add(head);
+
+  const snout = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), bodyMat);
+  snout.position.set(1.5, 1.7, 0); snout.scale.set(1.2, 0.9, 0.9); g.add(snout);
+
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8),
+    new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2 }));
+  nose.position.set(1.68, 1.7, 0); g.add(nose);
+
+  const le = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), eyeMat);
+  le.position.set(1.3, 1.82, 0.16); g.add(le);
+  const re = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), eyeMat);
+  re.position.set(1.3, 1.82, -0.16); g.add(re);
+
+  [-1, 1].forEach(side => {
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, 0.6, 5), antlerMat);
+    base.position.set(1.1, 2.05, side * 0.1); base.rotation.z = side * 0.4; g.add(base);
+    const branch1 = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.35, 4), antlerMat);
+    branch1.position.set(1.0, 2.3, side * 0.25); branch1.rotation.z = side * 0.7; g.add(branch1);
+    const branch2 = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.25, 4), antlerMat);
+    branch2.position.set(1.15, 2.35, side * 0.15); branch2.rotation.z = side * 1.0; g.add(branch2);
+  });
+
+  const legGeo = new THREE.CylinderGeometry(0.07, 0.09, 0.9, 6);
+  const legPositions = [
+    { x: -0.45, z: 0.25 }, { x: -0.45, z: -0.25 },
+    { x: 0.45, z: 0.25 }, { x: 0.45, z: -0.25 }
+  ];
+  legPositions.forEach(pos => {
+    const leg = new THREE.Mesh(legGeo, legMat);
+    leg.position.set(pos.x, 0.45, pos.z); leg.castShadow = true; g.add(leg);
+  });
+
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.25, 6), bodyMat);
+  tail.position.set(-1.0, 1.1, 0); tail.rotation.z = Math.PI / 2.5; g.add(tail);
+
+  g.position.set(x, 0, z); scene.add(g);
+  return { mesh: g, type: 'reindeer', health: 80, speed: 3 + Math.random() * 1.5,
+    damage: 15, score: 250, attackRange: 2.5, attackCooldown: 1500,
+    lastAttack: 0, alive: true, legPhase: Math.random() * Math.PI * 2 };
+}
+
+
+// Santa Boss
+function createSanta(x,z){
+  const g=new THREE.Group();
+  const suitMat=new THREE.MeshStandardMaterial({color:0xcc0000,roughness:0.6});
+  const trimMat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.5});
+  const skinMat=new THREE.MeshStandardMaterial({color:0xffccaa});
+  const beardMat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.9});
+  const bootMat=new THREE.MeshStandardMaterial({color:0x111111});
+  const beltMat=new THREE.MeshStandardMaterial({color:0x111111});
+  const buckleMat=new THREE.MeshStandardMaterial({color:0xffd700,metalness:0.9});
+  const evilEyeMat=new THREE.MeshStandardMaterial({color:0xff0000,emissive:0xff0000,emissiveIntensity:2});
+
+  // Big body
+  const body=new THREE.Mesh(new THREE.SphereGeometry(0.9,16,16),suitMat);
+  body.position.y=1.6; body.castShadow=true; g.add(body);
+
+  // Belly
+  const belly=new THREE.Mesh(new THREE.SphereGeometry(0.75,16,16),suitMat);
+  belly.position.set(0,1.3,0.35); g.add(belly);
+
+  // Belt
+  const belt=new THREE.Mesh(new THREE.TorusGeometry(0.75,0.08,8,20),beltMat);
+  belt.position.set(0,1.45,0); belt.rotation.x=Math.PI/2; g.add(belt);
+  const buckle=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.25,0.06),buckleMat);
+  buckle.position.set(0,1.45,0.8); g.add(buckle);
+
+  // Head
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.42,16,16),skinMat);
+  head.position.y=2.7; head.castShadow=true; g.add(head);
+
+  // Beard
+  const beard=new THREE.Mesh(new THREE.SphereGeometry(0.38,12,12),beardMat);
+  beard.position.set(0,2.4,0.18); g.add(beard);
+  // Beard bottom
+  const beardBot=new THREE.Mesh(new THREE.SphereGeometry(0.25,10,10),beardMat);
+  beardBot.position.set(0,2.1,0.25); g.add(beardBot);
+
+  // Mustache
+  const must=new THREE.Mesh(new THREE.SphereGeometry(0.16,8,8),beardMat);
+  must.position.set(0,2.55,0.38); must.scale.set(1.6,0.4,0.4); g.add(must);
+
+  // Evil glowing eyes
+  const le=new THREE.Mesh(new THREE.SphereGeometry(0.05,8,8),evilEyeMat);
+  le.position.set(-0.14,2.75,0.37); g.add(le);
+  const re=new THREE.Mesh(new THREE.SphereGeometry(0.05,8,8),evilEyeMat);
+  re.position.set(0.14,2.75,0.37); g.add(re);
+
+  // Santa hat
+  const hatBrim=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.04,16),trimMat);
+  hatBrim.position.y=3.05; g.add(hatBrim);
+  const hatTop=new THREE.Mesh(new THREE.ConeGeometry(0.38,0.7,16),suitMat);
+  hatTop.position.set(0,3.5,-0.15); hatTop.rotation.x=0.15; g.add(hatTop);
+  const pom=new THREE.Mesh(new THREE.SphereGeometry(0.13,10,10),trimMat);
+  pom.position.set(0,3.9,-0.2); g.add(pom);
+
+  // Legs/boots
+  const ll=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.7,8),bootMat);
+  ll.position.set(-0.3,0.35,0); g.add(ll);
+  const rl=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.7,8),bootMat);
+  rl.position.set(0.3,0.35,0); g.add(rl);
+
+  // Candy cane staff
+  const staff=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,1.8,8),trimMat);
+  staff.position.set(1.0,1.9,0); staff.rotation.z=-0.25; g.add(staff);
+  // Red stripes
+  for(let i=0;i<6;i++){
+    const stripe=new THREE.Mesh(new THREE.TorusGeometry(0.04,0.012,4,8),suitMat);
+    stripe.position.set(1.0,1.1+i*0.26,0); stripe.rotation.y=Math.PI/2; g.add(stripe);
+  }
+  // Glowing tip
+  const glow=new THREE.Mesh(new THREE.SphereGeometry(0.18,10,10),
+    new THREE.MeshStandardMaterial({color:0xff0000,emissive:0xff0000,emissiveIntensity:3}));
+  glow.position.set(1.0,2.85,0); g.add(glow);
+
+  g.position.set(x,0,z); scene.add(g);
+  return {mesh:g, type:'santa', health:500, maxHealth:500, speed:2.5, damage:25, score:2000,
+    attackRange:8, attackCooldown:800, lastAttack:0, alive:true, isBoss:true};
+}
+
+
+function createSnowball(pos,dir,isEnemy){
+  const m=new THREE.Mesh(new THREE.SphereGeometry(isEnemy?0.08:0.06,6,6),
+    new THREE.MeshStandardMaterial({color:isEnemy?0xff4444:0xaaddff,emissive:isEnemy?0xff0000:0x0088ff,emissiveIntensity:0.5}));
+  m.position.copy(pos); scene.add(m);
+  return {mesh:m, direction:dir.clone().normalize(), speed:isEnemy?12:35, isEnemy,
+    damage:isEnemy?10:25, life:2000, born:Date.now()};
+}
+
+function createExplosion(pos,color,count=15){
+  for(let i=0;i<count;i++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.05+Math.random()*0.08,4,4),
+      new THREE.MeshBasicMaterial({color,transparent:true}));
+    m.position.copy(pos); scene.add(m);
+    STATE.particles.push({mesh:m, velocity:new THREE.Vector3((Math.random()-0.5)*8,Math.random()*6,(Math.random()-0.5)*8),
+      life:600+Math.random()*400, born:Date.now()});
+  }
+}
+
+const snowGeo=new THREE.BufferGeometry();
+const sp=new Float32Array(6000);
+for(let i=0;i<6000;i+=3){ sp[i]=(Math.random()-0.5)*150; sp[i+1]=Math.random()*80; sp[i+2]=(Math.random()-0.5)*150; }
+snowGeo.setAttribute('position',new THREE.BufferAttribute(sp,3));
+const snowSystem=new THREE.Points(snowGeo,new THREE.PointsMaterial({color:0xffffff,size:0.3,transparent:true,opacity:0.8}));
+scene.add(snowSystem);
+const canvas = renderer.domElement;
+canvas.addEventListener('click', () => {
+  // Don't resume if game over screen is visible
+  initAudio();
+  if (document.getElementById('gameover-screen').style.display === 'flex') return;
+  if (STATE.running) canvas.requestPointerLock();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === canvas) {
+    STATE.running = true;
+  } else {
+    // Pause game when pointer is unlocked (but don't trigger game over)
+    if (STATE.health > 0) STATE.running = false;
+  }
+});
+document.addEventListener('mousemove',e=>{
+  if(document.pointerLockElement===canvas){
+    STATE.yaw-=e.movementX*0.002;
+    STATE.pitch=Math.max(-Math.PI/2.5,Math.min(Math.PI/2.5,STATE.pitch-e.movementY*0.002));
+  }
+});
+const keys={};
+document.addEventListener('keydown',e=>{ keys[e.code]=true; if(e.code==='KeyR') reload(); });
+document.addEventListener('keyup',e=>{ keys[e.code]=false; });
+document.addEventListener('mousedown',e=>{ if(e.button===0&&STATE.running&&!STATE.reloading) shoot(); });
+
+function shoot(){
+  const now=Date.now();
+  if(now-STATE.lastShot<STATE.fireRate||STATE.ammo<=0){ if(STATE.ammo<=0) reload(); return; }
+  STATE.lastShot=now; STATE.ammo--; updateAmmo();
+  const dir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+  const pos=camera.position.clone().add(new THREE.Vector3(0.25,-0.2,-0.5).applyQuaternion(camera.quaternion));
+  STATE.bullets.push(createSnowball(pos,dir,false));
+  playShoot();
+  STATE.pitch+=0.01; createExplosion(pos,0xaaddff,5);
+}
+function reload(){ if(STATE.reloading||STATE.ammo===STATE.maxAmmo) return; STATE.reloading=true;
+  setTimeout(()=>{ STATE.ammo=STATE.maxAmmo; STATE.reloading=false; updateAmmo(); },1500); }
+
+function spawnWave(){
+  STATE.waveDelay=false;
+  const wd=document.getElementById('wave-display');
+  if(STATE.wave>=5&&!STATE.bossSpawned){
+    playBossSpawn();
+    STATE.bossSpawned=true; STATE.boss=createSanta(0,-45); STATE.enemies.push(STATE.boss); STATE.enemiesRemaining++;
+    document.getElementById('boss-health-container').style.display='block';
+    wd.textContent='🎅 BOSS: SANTA CLAUS! 🎅'; wd.classList.add('show');
+    setTimeout(()=>wd.classList.remove('show'),3000); return;
+  }
+  const elfs=3+STATE.wave*2, rein=Math.floor(STATE.wave/2);
+  playWaveStart();
+  STATE.enemiesRemaining=elfs+rein;
+  wd.textContent='❄️ WAVE '+STATE.wave+' ❄️'; wd.classList.add('show');
+  
+  setTimeout(()=>wd.classList.remove('show'),2000);
+  let s=0;
+  const iv=setInterval(()=>{
+    if(!STATE.running){clearInterval(iv);return;}
+    const a=Math.random()*Math.PI*2, d=30+Math.random()*20;
+    const x=camera.position.x+Math.cos(a)*d, z=camera.position.z+Math.sin(a)*d;
+    if(s<elfs){ STATE.enemies.push(createElf(x,z)); s++; }
+    else if(s<elfs+rein){ STATE.enemies.push(createReindeer(x,z)); s++; }
+    if(s>=elfs+rein) clearInterval(iv);
+  },800);
+}
+
+function damagePlayer(a){
+  playDamage();
+  STATE.health=Math.max(0,STATE.health-a);
+  const o=document.getElementById('damage-overlay'); o.style.opacity=0.6; setTimeout(()=>o.style.opacity=0,200);
+  updateHealth(); if(STATE.health<=0) gameOver();
+}
+function damageEnemy(e,a){
+  e.health-=a;
+  const p=document.getElementById('score-popup');
+  const sp=e.mesh.position.clone().project(camera);
+  p.textContent='-'+a; p.style.opacity=1;
+  p.style.left=((sp.x+1)/2*window.innerWidth)+'px'; p.style.top=((-sp.y+1)/2*window.innerHeight)+'px';
+  setTimeout(()=>p.style.opacity=0,800);
+  if(e.health<=0&&e.alive){
+    e.alive=false; STATE.enemiesRemaining--; STATE.score+=e.score; updateScore();
+    playExplosion();
+    createExplosion(e.mesh.position.clone().add(new THREE.Vector3(0,1,0)),
+      e.type==='elf'?0x00ff00:e.type==='reindeer'?0x8B4513:0xff0000,25);
+    scene.remove(e.mesh);
+    if(e.isBoss) victory();
+  }
+}
+
+function updateHealth(){
+  const b=document.getElementById('health-bar'), t=document.getElementById('health-text');
+  const p=STATE.health/STATE.maxHealth*100;
+  b.style.width=p+'%'; t.textContent='HP: '+STATE.health+'/'+STATE.maxHealth;
+  b.className=p<30?'low':'';
+}
+function updateAmmo(){ document.getElementById('ammo-display').textContent=
+  STATE.reloading?'❄️ RELOADING...':'❄️ '+STATE.ammo+' / ∞'; }
+function updateScore(){ document.getElementById('score-text').textContent='SCORE: '+STATE.score; }
+function updateWave(){ document.getElementById('wave-text').textContent='WAVE: '+STATE.wave;
+  document.getElementById('enemies-text').textContent='ENEMIES: '+STATE.enemiesRemaining; }
+function updateBoss(){
+  if(STATE.boss&&STATE.boss.alive){
+    document.getElementById('boss-health-bar').style.width=STATE.boss.health/STATE.boss.maxHealth*100+'%';
+  }
+}
+function updateSquadronUI(){
+  STATE.squadrons.forEach((s,i)=>{
+    document.getElementById('sq-'+(i+1)).className='squadron-member '+(s.alive?'alive':'dead');
+  });
+}
+
+function gameOver(){
+  playGameOver();
+  stopWind();
+  STATE.running=false; document.exitPointerLock();
+  document.getElementById('gameover-screen').style.display='flex';
+  document.getElementById('gameover-title').textContent='MISSION FAILED';
+  document.getElementById('gameover-title').style.color='#0ff';
+  document.getElementById('gameover-subtitle').textContent='You were melted by Santa\'s forces...';
+  document.getElementById('final-score').textContent='Final Score: '+STATE.score+' | Waves: '+STATE.wave;
+}
+function victory(){
+  playVictory();
+  stopWind();
+  STATE.running=false; document.exitPointerLock();
+  document.getElementById('gameover-screen').style.display='flex';
+  document.getElementById('gameover-title').textContent='🎉 VICTORY! 🎉';
+  document.getElementById('gameover-title').style.color='#0f0';
+  document.getElementById('gameover-subtitle').textContent='Santa has been defeated! The North Pole is saved!';
+  document.getElementById('final-score').textContent='Final Score: '+STATE.score;
+}
+function resetGame(){
+  STATE.enemies.forEach(e=>scene.remove(e.mesh)); STATE.enemies=[];
+  STATE.bullets.forEach(b=>scene.remove(b.mesh)); STATE.bullets=[];
+  STATE.particles.forEach(p=>scene.remove(p.mesh)); STATE.particles=[];
+  STATE.score=0; STATE.wave=1; STATE.health=100; STATE.ammo=20; STATE.reloading=false;
+  STATE.enemiesRemaining=0; STATE.boss=null; STATE.bossSpawned=false; STATE.waveDelay=false;
+  camera.position.set(0,1.7,0); STATE.yaw=0; STATE.pitch=0;
+  STATE.squadrons.forEach((s,i)=>{
+    scene.remove(s.mesh); const a=(i/6)*Math.PI*2;
+    s.alive=true; s.health=100; s.mesh.position.set(Math.cos(a)*10,0,Math.sin(a)*10);
+    s.state='patrol'; scene.add(s.mesh);
+  });
+  document.getElementById('boss-health-container').style.display='none';
+  updateHealth(); updateAmmo(); updateScore(); updateWave(); updateSquadronUI();
+  STATE.running = true;
+  initAudio();
+  startWind();
+  canvas.requestPointerLock();
+}
+document.getElementById('start-btn').addEventListener('click',()=>{
+  document.getElementById('start-screen').style.display='none'; resetGame();
+});
+document.getElementById('restart-btn').addEventListener('click',()=>{
+  document.getElementById('gameover-screen').style.display='none';
+  document.getElementById('gameover-title').style.color='#0ff'; resetGame();
+});
+
+const clock=new THREE.Clock();
+function updatePlayer(dt){
+  const spd=STATE.sprinting?8:5, md=new THREE.Vector3();
+  if(keys['KeyW']) md.z-=1; if(keys['KeyS']) md.z+=1;
+  if(keys['KeyA']) md.x-=1; if(keys['KeyD']) md.x+=1;
+  STATE.sprinting=!!(keys['ShiftLeft']||keys['ShiftRight']);
+  md.normalize().applyAxisAngle(new THREE.Vector3(0,1,0),STATE.yaw);
+  camera.position.add(md.multiplyScalar(spd*dt));
+  if (md.length() > 0 && STATE.canJump) playFootstep();
+  if(keys['Space']&&STATE.canJump){ STATE.velocity.y=8; STATE.canJump=false; }
+  STATE.velocity.y-=20*dt; camera.position.y+=STATE.velocity.y*dt;
+  if(camera.position.y<=1.7){ camera.position.y=1.7; STATE.velocity.y=0; STATE.canJump=true; }
+  camera.position.x=Math.max(-90,Math.min(90,camera.position.x));
+  camera.position.z=Math.max(-90,Math.min(90,camera.position.z));
+  camera.quaternion.setFromEuler(new THREE.Euler(STATE.pitch,STATE.yaw,0,'YXZ'));
+}
+
+// Update enemies
+function updateEnemies(dt) {
+  const now = Date.now();
+  STATE.enemies = STATE.enemies.filter(e => e.alive);
+  STATE.enemies.forEach(e => {
+    const dir = new THREE.Vector3().subVectors(camera.position, e.mesh.position);
+    const dist = dir.length();
+    dir.normalize();
+
+    if (dist > e.attackRange) {
+      e.mesh.position.x += dir.x * e.speed * dt;
+      e.mesh.position.z += dir.z * e.speed * dt;
+    }
+
+    e.mesh.lookAt(camera.position.x, e.mesh.position.y, camera.position.z);
+    e.mesh.position.y = getGroundHeight(e.mesh.position.x, e.mesh.position.z);
+
+    if (dist < e.attackRange && now - e.lastAttack > e.attackCooldown) {
+      e.lastAttack = now;
+      if (e.type === 'santa' || e.type === 'elf') {
+        playEnemyShoot();
+        STATE.bullets.push(createSnowball(shootPos, dir, true));
+        const shootPos = e.mesh.position.clone().add(
+          new THREE.Vector3(0, e.type === 'santa' ? 2 : 1, 0));
+        STATE.bullets.push(createSnowball(shootPos, dir, true));
+      } else {
+        damagePlayer(e.damage);
+      }
+    }
+  });
+}
+
+function updateBullets(dt){
+  const now=Date.now();
+  STATE.bullets=STATE.bullets.filter(b=>{
+    b.mesh.position.add(b.direction.clone().multiplyScalar(b.speed*dt));
+    if(now-b.born>b.life||b.mesh.position.y<0){
+      if(b.mesh.position.y<0) createExplosion(b.mesh.position,b.isEnemy?0xff4444:0xaaddff,3);
+      scene.remove(b.mesh); return false;
+    }
+    if(b.isEnemy){
+      if(b.mesh.position.distanceTo(camera.position)<1.5){
+        damagePlayer(b.damage); createExplosion(b.mesh.position,0xff4444,8);
+        scene.remove(b.mesh); return false;
+      }
+      for(let s of STATE.squadrons){
+        if(!s.alive) continue;
+        if(b.mesh.position.distanceTo(s.mesh.position)<1.2){
+          s.health-=b.damage; createExplosion(b.mesh.position,0xffffff,5);
+          scene.remove(b.mesh);
+          if(s.health<=0){ s.alive=false; createExplosion(s.mesh.position,0xaaddff,15);
+            scene.remove(s.mesh); updateSquadronUI(); }
+          return false;
+        }
+      }
+    } else {
+      for(let e of STATE.enemies){
+        if(!e.alive) continue;
+        const hd=e.type==='santa'?2:e.type==='reindeer'?1.2:0.8;
+        if(b.mesh.position.distanceTo(e.mesh.position)<hd){
+          damageEnemy(e,b.damage); createExplosion(b.mesh.position,0xaaddff,8);
+          scene.remove(b.mesh); return false;
+        }
+      }
+    }
+    return true;
+  });
+}
+
+// Update squadron
+function updateSquadron(dt) {
+  const now = Date.now();
+  STATE.squadrons.forEach(s => {
+    if (!s.alive) return;
+
+    let ne = null, nd = Infinity;
+    STATE.enemies.forEach(e => {
+      if (!e.alive) return;
+      const d = s.mesh.position.distanceTo(e.mesh.position);
+      if (d < nd) { nd = d; ne = e; }
+    });
+
+    if (ne && nd < 30) {
+      const dir = new THREE.Vector3().subVectors(ne.mesh.position, s.mesh.position);
+      dir.y = 0; dir.normalize();
+      s.mesh.position.x += dir.x * s.speed * dt;
+      s.mesh.position.z += dir.z * s.speed * dt;
+      s.mesh.lookAt(ne.mesh.position.x, s.mesh.position.y, ne.mesh.position.z);
+      if (nd < 15 && now - s.lastShot > s.shootCooldown) {
+        s.lastShot = now;
+        STATE.bullets.push(createSnowball(
+          s.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)), dir, false));
+      }
+    } else {
+      s.patrolAngle += dt * 0.3;
+      const tx = camera.position.x + Math.cos(s.patrolAngle) * s.patrolRadius;
+      const tz = camera.position.z + Math.sin(s.patrolAngle) * s.patrolRadius;
+      const dir = new THREE.Vector3(tx - s.mesh.position.x, 0, tz - s.mesh.position.z).normalize();
+      s.mesh.position.x += dir.x * s.speed * 0.5 * dt;
+      s.mesh.position.z += dir.z * s.speed * 0.5 * dt;
+      s.mesh.lookAt(tx, s.mesh.position.y, tz);
+    }
+
+    // Sit on terrain
+    s.mesh.position.y = getGroundHeight(s.mesh.position.x, s.mesh.position.z);
+    s.mesh.position.y += Math.sin(now * 0.003) * 0.02;
+  });
+}
+
+function updateParticles(dt){
+  STATE.particles=STATE.particles.filter(p=>{
+    p.mesh.position.add(p.velocity.clone().multiplyScalar(dt));
+    p.velocity.y-=15*dt; p.life-=dt*1000;
+    p.mesh.material.opacity=Math.max(0,p.life/1000); p.mesh.scale.multiplyScalar(0.98);
+    if(p.life<=0||p.mesh.position.y<-1){ scene.remove(p.mesh); return false; }
+    return true;
+  });
+}
+function checkWave(){
+  if(STATE.enemiesRemaining<=0&&!STATE.waveDelay&&!STATE.bossSpawned){
+    STATE.waveDelay=true; STATE.wave++; updateWave();
+    STATE.health=Math.min(STATE.maxHealth,STATE.health+20); updateHealth();
+    setTimeout(()=>{ if(STATE.running) spawnWave(); },3000);
+  }
+  updateWave();
+}
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),0.05);
+  if(STATE.running){
+    updatePlayer(dt); updateEnemies(dt); updateBullets(dt); updateSquadron(dt);
+    updateParticles(dt); updateBoss(); checkWave();
+    const bs=STATE.sprinting?12:6, ba=STATE.sprinting?0.04:0.02;
+    weaponGroup.position.y=Math.sin(Date.now()*0.003*bs)*ba;
+    weaponGroup.position.x=Math.cos(Date.now()*0.003*bs)*ba*0.5;
+    weaponGroup.rotation.x=STATE.reloading?-0.5:0;
+    redLight.intensity=2+Math.sin(Date.now()*0.005);
+  }
+  const ps=snowSystem.geometry.attributes.position.array;
+  for(let i=1;i<ps.length;i+=3){ ps[i]-=15*dt; if(ps[i]<0) ps[i]=80; }
+  snowSystem.geometry.attributes.position.needsUpdate=true;
+  renderer.render(scene,camera);
+}
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight);
+});
+for(let i=0;i<20;i++){
+  const f=document.createElement('div'); f.className='snowflake'; f.textContent='❄';
+  f.style.left=Math.random()*100+'vw'; f.style.animationDuration=(5+Math.random()*10)+'s';
+  f.style.animationDelay=Math.random()*10+'s'; f.style.fontSize=(10+Math.random()*15)+'px';
+  f.style.opacity=0.2+Math.random()*0.5; document.body.appendChild(f);
+}
+animate();
+</script>
+</body>
+</html>
