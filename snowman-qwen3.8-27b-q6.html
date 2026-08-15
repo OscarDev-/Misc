@@ -991,7 +991,7 @@ function makeAlly(i){
   const b=buildSnowman(i);
   const a={name:allyNames[i],initial:allyInit[i],g:b.g,mats:b.mats,cannonM:b.cannonM,
     hp:120,maxHp:120,angle:[-1.2,0,1.2][i],shootT:rand(.3,1),phase:rand(0,TAU),
-    dead:false,deadT:0,flash:0,baseE:null,push:V3()};
+    dead:false,deadT:0,flash:0,baseE:null,push:V3(),anchorX:0,anchorZ:0};
   storeBase(a);
   scene.add(a.g);allies.push(a);
 }
@@ -1000,7 +1000,8 @@ function resetAllies(){
   for(const a of allies){
     a.dead=false;a.hp=a.maxHp;a.flash=0;
     a.g.visible=true;a.g.scale.setScalar(a.name==='PIP'?.82:1);a.g.rotation.set(0,0,0);
-    a.g.position.set(player.pos.x+Math.cos(a.angle)*3.2,0,player.pos.z+Math.sin(a.angle)*3.2);
+    a.anchorX=player.pos.x;a.anchorZ=player.pos.z;
+    a.g.position.set(a.anchorX+Math.cos(a.angle)*4,0,a.anchorZ+Math.sin(a.angle)*4);
     spawnBurst(a.g.position.clone().add(V3(0,.8,0)),0xffffff,8,3,.4,.5,2,2);
   }
 }
@@ -1029,13 +1030,15 @@ function updateAllies(dt,t){
       continue;
     }
     a.cannonM.emissiveIntensity=.5+.4*Math.sin(t*6+a.phase);
-    /* target spot around player */
+    /* formation: hold an anchor, only re-anchor when you break 9 units away */
     a.angle+=dt*.12*(a.initial==='P'?1.4:1);
-    const tx=P.x+Math.cos(a.angle)*3.2,tz=P.z+Math.sin(a.angle)*3.2;
+    const apx=P.x-a.anchorX,apz=P.z-a.anchorZ;
+    if(apx*apx+apz*apz>81){a.anchorX=P.x;a.anchorZ=P.z}
+    const tx=a.anchorX+Math.cos(a.angle)*4,tz=a.anchorZ+Math.sin(a.angle)*4;
     const dx=tx-a.g.position.x,dz=tz-a.g.position.z;
     const d=Math.hypot(dx,dz);
-    if(d>.5){
-      const s=Math.min(5.4,d/dt*2)*dt;
+    if(d>.4){
+      const s=Math.min(5.4,d/dt*1.2)*dt;   // ease in — no rushing
       a.g.position.x+=dx/d*s;a.g.position.z+=dz/d*s;
     }
     /* dodge close enemies */
@@ -1063,7 +1066,6 @@ function updateAllies(dt,t){
       a.shootT-=dt;
       if(a.shootT<=0){
         a.shootT=rand(.75,1.3);
-        const ry=Math.atan2(fx,fz);
         const m=V3(a.g.position.x+fx*.4,1.05*(a.name==='PIP'?.82:1),a.g.position.z+fz*.4);
         const tgt=V3(best.g.position.x+rand(-.3,.3),best.cy,best.g.position.z+rand(-.3,.3));
         const v=tgt.sub(m).normalize().multiplyScalar(22);
